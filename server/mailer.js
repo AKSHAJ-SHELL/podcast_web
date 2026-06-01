@@ -1,21 +1,17 @@
 const nodemailer = require("nodemailer");
+const { config } = require("./config");
+const { logger } = require("./logger");
 
-const smtpHost = process.env.SMTP_HOST;
-const smtpPort = Number(process.env.SMTP_PORT || 465);
-const smtpSecure = String(process.env.SMTP_SECURE || "true") === "true";
-const smtpUser = process.env.SMTP_USER;
-const smtpPass = process.env.SMTP_PASS;
-
-const hasSmtpConfig = Boolean(smtpHost && smtpUser && smtpPass);
+const hasSmtpConfig = config.smtp.enabled;
 
 const transporter = hasSmtpConfig
   ? nodemailer.createTransport({
-      host: smtpHost,
-      port: smtpPort,
-      secure: smtpSecure,
+      host: config.smtp.host,
+      port: config.smtp.port,
+      secure: config.smtp.secure,
       auth: {
-        user: smtpUser,
-        pass: smtpPass,
+        user: config.smtp.user,
+        pass: config.smtp.pass,
       },
       connectionTimeout: 10000,
       greetingTimeout: 10000,
@@ -25,12 +21,12 @@ const transporter = hasSmtpConfig
 
 async function sendContactNotification(payload) {
   if (!transporter) {
-    // SMTP not configured: skip email silently in local/dev.
+    logger.warn("mail.skip_smtp_not_configured");
     return;
   }
 
-  const to = process.env.CONTACT_NOTIFY_TO || "shandilya.akshaj@gmail.com";
-  const from = smtpUser;
+  const to = config.smtp.notifyTo;
+  const from = config.smtp.user;
 
   const text = [
     "New contact form submission",
@@ -44,13 +40,18 @@ async function sendContactNotification(payload) {
     payload.message,
   ].join("\n");
 
-  await transporter.sendMail({
-    from,
-    to,
-    replyTo: payload.email,
-    subject: `CONTRACT: ${payload.subject} | ${payload.first_name} ${payload.last_name}`,
-    text,
-  });
+  try {
+    await transporter.sendMail({
+      from,
+      to,
+      replyTo: payload.email,
+      subject: `CONTRACT: ${payload.subject} | ${payload.first_name} ${payload.last_name}`,
+      text,
+    });
+  } catch (error) {
+    logger.error("mail.send_failed", { error: error.message });
+    throw error;
+  }
 }
 
 module.exports = { sendContactNotification };

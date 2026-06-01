@@ -1677,7 +1677,7 @@
 </footer>
 
 <script>
-  const CONTACT_API_BASE = window.CONTACT_API_BASE || "http://localhost:3000";
+  const CONTACT_API_BASE = (window.CONTACT_API_BASE || "").trim().replace(/\/$/, "");
   const CONTACT_ALLOWED_SUBJECTS = new Set([
     "Guest Suggestion",
     "Collaboration",
@@ -1767,7 +1767,8 @@
     setContactStatus("Sending your message...", false);
 
     try {
-      const response = await fetch(`${CONTACT_API_BASE}/api/contact`, {
+      const endpoint = CONTACT_API_BASE ? `${CONTACT_API_BASE}/api/contact` : "/api/contact";
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)

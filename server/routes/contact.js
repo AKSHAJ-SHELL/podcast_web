@@ -1,6 +1,10 @@
 const express = require("express");
-const { db } = require("../db");
-const { sendContactNotification } = require("../mailer");
+const { createContactSubmission } = require("../db");
+const { config } = require("../config");
+const { logger } = require("../logger");
+const { incrementCounter, observeDuration } = require("../metrics");
+const { enqueueContactNotification } = require("../notifications");
+const { emitAlert } = require("../alerts");
 
 const router = express.Router();
 
@@ -14,25 +18,14 @@ const ALLOWED_SUBJECTS = new Set([
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const insertContactSubmission = db.prepare(`
-  INSERT INTO contact_submissions (
-    first_name,
-    last_name,
-    email,
-    subject,
-    message,
-    created_at
-  ) VALUES (?, ?, ?, ?, ?, ?)
-`);
-
 function normalizeValue(value) {
   if (typeof value !== "string") return "";
   return value.trim();
 }
 
 async function verifyCaptchaToken(captchaToken) {
-  const verificationUrl = process.env.CAPTCHA_VERIFY_URL;
-  const verificationSecret = process.env.CAPTCHA_SECRET;
+  const verificationUrl = config.captcha.verifyUrl;
+  const verificationSecret = config.captcha.secret;
 
   if (!verificationUrl || !verificationSecret) return true;
   if (!captchaToken) return false;
@@ -51,16 +44,19 @@ async function verifyCaptchaToken(captchaToken) {
 
     const verificationResult = await verificationResponse.json();
     return Boolean(verificationResult && verificationResult.success);
-  } catch (_error) {
+  } catch (error) {
+    logger.warn("contact.captcha_verify_error", { error: error.message });
     return false;
   }
 }
 
 router.post("/", async (req, res) => {
+  const startedAt = Date.now();
   const website = normalizeValue(req.body.website);
 
   // Honeypot for bot filtering: pretend success, skip insert.
   if (website) {
+    incrementCounter("contact.honeypot.blocked");
     return res.status(201).json({ ok: true });
   }
 
@@ -72,62 +68,69 @@ router.post("/", async (req, res) => {
   const captchaToken = normalizeValue(req.body.captcha_token);
 
   if (!firstName || !lastName || !email || !subject || !message) {
+    incrementCounter("contact.validation.failure", 1, { reason: "required_fields" });
     return res.status(400).json({ ok: false, error: "All fields are required." });
   }
 
   if (firstName.length > 100 || lastName.length > 100) {
+    incrementCounter("contact.validation.failure", 1, { reason: "name_too_long" });
     return res.status(400).json({ ok: false, error: "Name is too long." });
   }
 
   if (email.length > 254) {
+    incrementCounter("contact.validation.failure", 1, { reason: "email_too_long" });
     return res.status(400).json({ ok: false, error: "Email is too long." });
   }
 
   if (subject.length > 100 || !ALLOWED_SUBJECTS.has(subject)) {
+    incrementCounter("contact.validation.failure", 1, { reason: "invalid_subject" });
     return res.status(400).json({ ok: false, error: "Invalid subject." });
   }
 
   if (message.length > 5000) {
+    incrementCounter("contact.validation.failure", 1, { reason: "message_too_long" });
     return res.status(400).json({ ok: false, error: "Message is too long." });
   }
 
   if (!EMAIL_REGEX.test(email)) {
+    incrementCounter("contact.validation.failure", 1, { reason: "invalid_email" });
     return res.status(400).json({ ok: false, error: "Invalid email format." });
   }
 
   const captchaVerified = await verifyCaptchaToken(captchaToken);
   if (!captchaVerified) {
+    incrementCounter("contact.validation.failure", 1, { reason: "captcha_failed" });
     return res.status(400).json({ ok: false, error: "Captcha verification failed." });
   }
 
   const createdAt = new Date().toISOString();
 
   try {
-    const result = insertContactSubmission.run(
-      firstName,
-      lastName,
+    const id = createContactSubmission({
+      first_name: firstName,
+      last_name: lastName,
       email,
       subject,
       message,
-      createdAt
-    );
+      created_at: createdAt,
+    });
+    incrementCounter("contact.submission.success");
+    observeDuration("contact.submission.duration_ms", Date.now() - startedAt);
 
-    // Email failure should not fail API success.
-    try {
-      await sendContactNotification({
-        first_name: firstName,
-        last_name: lastName,
-        email,
-        subject,
-        message,
-        created_at: createdAt,
-      });
-    } catch (_mailErr) {
-      // keep API success even if email fails
-    }
+    enqueueContactNotification({
+      first_name: firstName,
+      last_name: lastName,
+      email,
+      subject,
+      message,
+      created_at: createdAt,
+    });
 
-    return res.status(201).json({ ok: true, id: result.lastInsertRowid });
-  } catch (_error) {
+    return res.status(201).json({ ok: true, id });
+  } catch (error) {
+    incrementCounter("contact.submission.failure");
+    logger.error("contact.submission_failed", { error: error.message });
+    emitAlert("contact.submission.failure", { error: error.message }).catch(() => {});
     return res.status(500).json({ ok: false, error: "Failed to save submission." });
   }
 });

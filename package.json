@@ -1,0 +1,14 @@
+{
+  "name": "podcast-frontend-vercel",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "dev": "vercel dev",
+    "smoke:contact": "node scripts/smoke-contact.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
+    "nodemailer": "^8.0.2"
+  }
+}

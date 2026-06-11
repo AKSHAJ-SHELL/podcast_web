@@ -1,4 +1,4 @@
-const target = process.env.SMOKE_API_URL || "http://localhost:3000/api/contact";
+const target = process.env.SMOKE_API_URL || "http://localhost:8888/api/contact";
 
 async function main() {
   const response = await fetch(target, {
@@ -11,7 +11,8 @@ async function main() {
       subject: "General Question",
       message: "Smoke test submission",
       website: "",
-      captcha_token: "",
+      consent: true,
+      captcha_token: process.env.SMOKE_CAPTCHA_TOKEN || "",
     }),
   });
   const body = await response.json().catch(() => ({}));

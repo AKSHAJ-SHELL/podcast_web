@@ -1,0 +1,32 @@
+[build]
+  # Publish the real page directly as index.html (no document.write loader)
+  # and keep the copy step an explicit allowlist so backend sources
+  # (lib/, netlify/, sql/) are never published as public assets.
+  command = "mkdir -p dist && cp 'The podcast website code.html' dist/index.html && cp app.js dist/app.js"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[functions."retention"]
+  schedule = "@daily"
+
+# Keep the same API path the frontend already uses.
+[[redirects]]
+  from = "/api/contact"
+  to = "/.netlify/functions/contact"
+  status = 200
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    # Scripts are external (app.js + Turnstile) with no inline handlers, so
+    # script-src carries no 'unsafe-inline'. style-src keeps it for the
+    # page's extensive inline styles -- styles cannot exfiltrate or execute.
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: https://i.imgur.com https://images.unsplash.com; connect-src 'self' https://challenges.cloudflare.com; frame-src https://challenges.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=()"

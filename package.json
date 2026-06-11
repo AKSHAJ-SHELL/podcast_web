@@ -1,10 +1,11 @@
 {
-  "name": "podcast-frontend-vercel",
+  "name": "podcast-frontend-netlify",
   "version": "1.0.0",
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "dev": "vercel dev",
+    "dev": "netlify dev",
+    "test": "node --test tests/*.test.js",
     "smoke:contact": "node scripts/smoke-contact.js"
   },
   "dependencies": {

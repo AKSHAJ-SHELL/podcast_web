@@ -33,11 +33,11 @@ Netlify static site + serverless API for contact submissions.
 The policy promises all three rights with a 30-day response target. Every request follows the same shape; only step 3 differs.
 
 1. **Verify**: the request must arrive at `professionalperspectivespr@gmail.com` **from the same email address as the stored submission**. If it concerns another person's data or comes from a different address, reply explaining verification failed and stop. Do not "helpfully" act on unverified requests.
-2. **Locate**: `select id, first_name, last_name, subject, message, consented_at, consent_version, created_at from contact_submissions where email = '<address>';` against Neon, plus a Gmail search for the address to find the notification copies.
+2. **Locate**: `select id, first_name, last_name, subject, message, consented_at, consent_version, created_at from contact_submissions where email = '<address>';` against Neon, plus a Gmail search for the address in the **notification inbox** (`CONTACT_NOTIFY_TO`, currently `shandilya.akshaj@gmail.com` -- note this is NOT the inbox where requests arrive) to find the notification copies.
 3. **Fulfill**:
    - *Access*: reply with the row contents from step 2 (their own data only).
    - *Correction*: `update contact_submissions set <field> = '<corrected>' where email = '<address>';` -- the inbox copy stays as-received; note the correction in your reply.
-   - *Deletion*: `delete from contact_submissions where email = '<address>';` then delete the Gmail notification email(s) **including from Trash**. Both stores, always -- the policy says a deletion request covers both.
+   - *Deletion*: `delete from contact_submissions where email = '<address>';` then delete the notification email(s) from the `CONTACT_NOTIFY_TO` inbox **including from Trash**. Both stores, always -- the policy says a deletion request covers both.
 4. **Confirm**: reply stating what was done and the date. Keep the request/confirmation thread (it contains no more PII than the requester already sent, and it is your evidence of compliance).
 
 Notes: Neon backups age out on their own (disclosed in the policy); function logs contain no PII, so there is nothing to scrub there.
@@ -46,7 +46,7 @@ Notes: Neon backups age out on their own (disclosed in the policy); function log
 
 - **Netlify function logs** are a transient PII-adjacent store. Do not attach log drains without checking the drain's retention; the functions deliberately log no PII, but treat drains as in-scope for any future audit.
 - **DPAs**: verify data-processing agreements/terms with Neon and Google (Workspace/Gmail) cover processor use. Netlify and Cloudflare publish standard DPAs.
-- **Host inboxes**: every notification email is a PII copy. Keep them in the single notification inbox; do not forward submissions to personal accounts, or deletion requests become unfulfillable.
+- **Host inboxes**: every notification email is a PII copy. They are delivered to exactly one inbox -- `CONTACT_NOTIFY_TO` (currently `shandilya.akshaj@gmail.com`, a personal account; DSAR requests arrive at `professionalperspectivespr@gmail.com`, so fulfillment requires access to BOTH). Do not forward submissions onward or add recipients, or deletion requests become unfulfillable. If the notification inbox ever changes, update the DSAR runbook above and scrub the old inbox first.
 
 ### CAN-SPAM precondition (read before ever emailing submitters)
 
@@ -95,7 +95,7 @@ Success: `201` with `{ "ok": true }`. No identifiers are returned.
 
 ## Deploy flow
 
-1. Create a Turnstile widget in the Cloudflare dashboard; put the site key in `The podcast website code.html` (`data-sitekey`, currently the placeholder `YOUR_TURNSTILE_SITE_KEY` -- **the form will not work until this is replaced**) and `TURNSTILE_SECRET` in Netlify env vars.
+1. The Turnstile site key is set in `The podcast website code.html` (`data-sitekey`); put the matching `TURNSTILE_SECRET` in Netlify env vars.
 2. Import the repo in Netlify (`netlify.toml` is picked up automatically).
 3. Add the environment variables in Site configuration -> Environment variables (including `RATE_LIMIT_PEPPER`).
 4. Run the SQL bootstrap against Neon.

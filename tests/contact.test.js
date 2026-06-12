@@ -7,7 +7,6 @@ const path = require("node:path");
 const state = {
   rateLimit: { allowed: true, remaining: 9 },
   rateLimitError: null,
-  captchaOk: true,
   insertError: null,
   inserted: { id: 7, created_at: "2026-06-11T00:00:00.000Z" },
   mailError: null,
@@ -32,12 +31,6 @@ mockModule("lib/rate-limit.js", {
   },
   async purgeStaleRateLimits() {
     return 0;
-  },
-});
-
-mockModule("lib/captcha.js", {
-  async verifyCaptchaToken() {
-    return state.captchaOk;
   },
 });
 
@@ -72,7 +65,6 @@ function validPayload(overrides = {}) {
     message: "Hello there",
     website: "",
     consent: true,
-    captcha_token: "tok",
     ...overrides,
   };
 }
@@ -88,7 +80,6 @@ function postEvent(payload, headers = {}) {
 test.beforeEach(() => {
   state.rateLimit = { allowed: true, remaining: 9 };
   state.rateLimitError = null;
-  state.captchaOk = true;
   state.insertError = null;
   state.mailError = null;
   state.mailCalls = [];
@@ -163,14 +154,6 @@ test("rejects submissions without consent", async () => {
   const res = await handler(postEvent(validPayload({ consent: false })));
   assert.equal(res.statusCode, 400);
   assert.match(JSON.parse(res.body).error, /privacy/i);
-  assert.equal(state.insertCalls.length, 0);
-});
-
-test("rejects failed captcha", async () => {
-  state.captchaOk = false;
-  const res = await handler(postEvent(validPayload()));
-  assert.equal(res.statusCode, 400);
-  assert.match(JSON.parse(res.body).error, /captcha/i);
   assert.equal(state.insertCalls.length, 0);
 });
 

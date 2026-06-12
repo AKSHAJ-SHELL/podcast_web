@@ -8,23 +8,22 @@ Netlify static site + serverless API for contact submissions.
 - Serverless API: `netlify/functions/contact.js` (shared logic in `lib/`)
 - Retention sweep: `netlify/functions/retention.js`, scheduled daily via `netlify.toml`
 - Database: Neon Postgres via `DATABASE_URL`
-- Bot defense: Cloudflare Turnstile (fail-closed in production) + honeypot + durable Postgres-backed rate limiting
+- Bot defense: honeypot + durable Postgres-backed rate limiting
 - Email: SMTP via Nodemailer (operator notification only, delivered to a Gmail inbox)
 - Newsletter: runs separately on Substack; nothing in this codebase reads or writes that list
 
 ## Security model
 
 - **Rate limiting**: fixed-window counter in Postgres (`contact_rate_limits`), keyed on an HMAC-SHA256 of the client IP using the `RATE_LIMIT_PEPPER` secret (a plain hash of an IPv4 is enumerable; the pepper makes stored keys useless without the secret). IP comes from Netlify's `x-nf-client-connection-ip` header only; `x-forwarded-for` is never trusted. Limiter failure fails closed (503).
-- **CAPTCHA**: Turnstile verified server-side, fail-closed in production (`CONTEXT=production`).
-- **Config fail-fast**: production throws at module load if `DATABASE_URL`, `RATE_LIMIT_PEPPER`, `TURNSTILE_SECRET`, SMTP settings, or `CONTACT_NOTIFY_TO` are missing.
-- **CSP**: `script-src 'self' https://challenges.cloudflare.com` with **no** `'unsafe-inline'` -- all scripts live in `app.js`, all event handlers are delegated, no inline `on*` attributes. `style-src` keeps `'unsafe-inline'` for the page's inline styles (styles cannot execute or exfiltrate). Full header set in `netlify.toml`.
+- **Config fail-fast**: production throws at module load if `DATABASE_URL`, `RATE_LIMIT_PEPPER`, SMTP settings, or `CONTACT_NOTIFY_TO` are missing.
+- **CSP**: `script-src 'self'` with **no** `'unsafe-inline'` -- all scripts live in `app.js`, all event handlers are delegated, no inline `on*` attributes. `style-src` keeps `'unsafe-inline'` for the page's inline styles (styles cannot execute or exfiltrate). Full header set in `netlify.toml`.
 - **Header injection**: user-controlled values placed in mail headers are control-character-stripped in `lib/mailer.js`, independent of Nodemailer's own encoding.
 - **PII hygiene**: responses return `{ ok: true }` with no row id; logs carry error class/code only (never raw driver messages, which can echo submitted data), no email addresses, no raw IPs.
 - **CSRF**: deliberately not implemented -- cookieless JSON API, no ambient credential.
 
 ## Privacy and compliance
 
-- Policy is the `Privacy` page in the site footer (version `2026-06-11`): controller identity + contact, legal bases, named US subprocessors (Netlify, Neon, Cloudflare, Google), international-transfer notice, Substack newsletter disclosure, honest retention (DB purge + inbox copy + backup caveat), verification method, EU complaint right, DNT, Shine the Light.
+- Policy is the `Privacy` page in the site footer (version `2026-06-12`): controller identity + contact, legal bases, named US subprocessors (Netlify, Neon, Google), international-transfer notice, Substack newsletter disclosure, honest retention (DB purge + inbox copy + backup caveat), verification method, EU complaint right, DNT, Shine the Light.
 - Consent: required checkbox; each row stores `consented_at` and `consent_version` (= the policy version in `lib/config.js`). **Bump `privacyPolicyVersion` whenever the policy text changes materially.**
 - Retention: rows purged after `CONTACT_RETENTION_DAYS` (default 90) by the daily scheduled function; stale rate-limit rows purged in the same sweep.
 
@@ -45,7 +44,7 @@ Notes: Neon backups age out on their own (disclosed in the policy); function log
 ### Operational privacy notes
 
 - **Netlify function logs** are a transient PII-adjacent store. Do not attach log drains without checking the drain's retention; the functions deliberately log no PII, but treat drains as in-scope for any future audit.
-- **DPAs**: verify data-processing agreements/terms with Neon and Google (Workspace/Gmail) cover processor use. Netlify and Cloudflare publish standard DPAs.
+- **DPAs**: verify data-processing agreements/terms with Neon and Google (Workspace/Gmail) cover processor use. Netlify publishes a standard DPA.
 - **Host inboxes**: every notification email is a PII copy. They are delivered to exactly one inbox -- `CONTACT_NOTIFY_TO` (currently `shandilya.akshaj@gmail.com`, a personal account; DSAR requests arrive at `professionalperspectivespr@gmail.com`, so fulfillment requires access to BOTH). Do not forward submissions onward or add recipients, or deletion requests become unfulfillable. If the notification inbox ever changes, update the DSAR runbook above and scrub the old inbox first.
 
 ### CAN-SPAM precondition (read before ever emailing submitters)
@@ -56,7 +55,6 @@ Contact-form addresses are **not** the newsletter: consent covers storage-to-res
 
 - `DATABASE_URL`
 - `RATE_LIMIT_PEPPER` (random secret, e.g. `openssl rand -hex 32`; limiter fails closed without it)
-- `TURNSTILE_SECRET` (production fails closed without it)
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`
 - `CONTACT_NOTIFY_TO`
 - `CORS_ORIGINS` (production + preview domains)
@@ -86,8 +84,7 @@ Run `sql/contact_submissions.sql` against Neon. Idempotent; creates `contact_sub
   "subject": "Guest Suggestion",
   "message": "Hi there!",
   "website": "",
-  "consent": true,
-  "captcha_token": "<turnstile token>"
+  "consent": true
 }
 ```
 
@@ -95,17 +92,16 @@ Success: `201` with `{ "ok": true }`. No identifiers are returned.
 
 ## Deploy flow
 
-1. The Turnstile site key is set in `The podcast website code.html` (`data-sitekey`); put the matching `TURNSTILE_SECRET` in Netlify env vars.
-2. Import the repo in Netlify (`netlify.toml` is picked up automatically).
-3. Add the environment variables in Site configuration -> Environment variables (including `RATE_LIMIT_PEPPER`).
-4. Run the SQL bootstrap against Neon.
-5. Deploy a preview, verify, then publish to production.
+1. Import the repo in Netlify (`netlify.toml` is picked up automatically).
+2. Add the environment variables in Site configuration -> Environment variables (including `RATE_LIMIT_PEPPER`).
+3. Run the SQL bootstrap against Neon.
+4. Deploy a preview, verify, then publish to production.
 
 ## Smoke test checklist
 
 - `GET /` serves the page; CSP header has no `'unsafe-inline'` in `script-src`; nav, episode filters, and search work (they're delegated from `app.js` now).
-- `POST /api/contact` returns `201` for a valid payload (consent + Turnstile token).
-- Submissions without consent or a valid Turnstile token return `400`.
+- `POST /api/contact` returns `201` for a valid payload (with consent).
+- Submissions without consent return `400`.
 - Row appears in `contact_submissions` with `consented_at` and `consent_version` set.
 - Notification email arrives; a mail-failure log line contains no email address and no raw error message.
 - Rate limit returns `429` after `CONTACT_RATE_LIMIT_MAX` submissions in the window.

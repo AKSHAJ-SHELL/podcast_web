@@ -1,7 +1,6 @@
 const { config } = require("../../lib/config");
 const logger = require("../../lib/logger");
 const { validatePayload } = require("../../lib/validation");
-const { verifyCaptchaToken } = require("../../lib/captcha");
 const { checkRateLimit } = require("../../lib/rate-limit");
 const { insertContactSubmission } = require("../../lib/postgres");
 const { sendContactNotification } = require("../../lib/mailer");
@@ -90,11 +89,6 @@ exports.handler = async function handler(event) {
   }
   if (validation.honeypot) {
     return jsonResponse(201, { ok: true }, extraHeaders);
-  }
-
-  const captchaVerified = await verifyCaptchaToken(validation.data.captcha_token, ip);
-  if (!captchaVerified) {
-    return jsonResponse(400, { ok: false, error: "Captcha verification failed." }, extraHeaders);
   }
 
   try {

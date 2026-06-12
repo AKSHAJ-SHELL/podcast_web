@@ -12,7 +12,6 @@ async function main() {
       message: "Smoke test submission",
       website: "",
       consent: true,
-      captcha_token: process.env.SMOKE_CAPTCHA_TOKEN || "",
     }),
   });
   const body = await response.json().catch(() => ({}));

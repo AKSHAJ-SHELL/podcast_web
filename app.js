@@ -61,8 +61,7 @@ async function handleContactSubmit(event) {
     subject: String(formData.get("subject") || "").trim(),
     message: String(formData.get("message") || "").trim(),
     website: String(formData.get("website") || "").trim(),
-    consent: formData.get("consent") === "on",
-    captcha_token: String(formData.get("cf-turnstile-response") || "").trim()
+    consent: formData.get("consent") === "on"
   };
 
   if (
@@ -83,11 +82,6 @@ async function handleContactSubmit(event) {
 
   if (!CONTACT_ALLOWED_SUBJECTS.has(payload.subject)) {
     setContactStatus("Please select a valid subject.", true);
-    return;
-  }
-
-  if (window.turnstile && !payload.captcha_token) {
-    setContactStatus("Please complete the verification challenge.", true);
     return;
   }
 
@@ -113,9 +107,6 @@ async function handleContactSubmit(event) {
   } catch (error) {
     setContactStatus(error.message || "Could not send message. Please try again.", true);
   } finally {
-    if (window.turnstile) {
-      try { window.turnstile.reset(); } catch (_) {}
-    }
     submitBtn.disabled = false;
     submitBtn.textContent = "Send Message →";
   }
